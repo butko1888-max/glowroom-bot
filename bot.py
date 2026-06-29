@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -60,7 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.add_client(user.id, user.username or "", user.first_name or "")
     await update.message.reply_text(
         f"Привіт, {user.first_name}! 👋\n\nЛаскаво просимо до бота студії краси ✨\n"
-        "Тут ти можеш записатись на послуги, переглянути прайс та керувати своїми записами.\n\nОбери що тебе цікавить 👇",
+        "Тут Ви можете записатись на послуги, переглянути прайс та керувати своїми записами.\n\nОберіть що Вас цікавить 👇",
         reply_markup=main_menu_keyboard()
     )
 
@@ -91,7 +92,7 @@ async def show_contacts(update, context):
 async def show_my_bookings(update, context):
     bookings = db.get_client_bookings(update.effective_user.id)
     if not bookings:
-        await update.message.reply_text("У тебе поки немає активних записів.\n\nНатисни 📅 *Записатись*!", parse_mode="Markdown")
+        await update.message.reply_text("У Вас поки немає активних записів.\n\nНатисніть 📅 *Записатись*!", parse_mode="Markdown")
         return
     lines = ["📋 *Твої записи:*\n"]
     for b in bookings:
@@ -101,7 +102,7 @@ async def show_my_bookings(update, context):
 
 async def booking_start(update, context):
     keyboard = [[InlineKeyboardButton(name, callback_data=f"cat_{key}")] for key, name in CATEGORIES.items()]
-    await update.message.reply_text("Обери категорію 👇", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("Оберіть категорію 👇", reply_markup=InlineKeyboardMarkup(keyboard))
     return SELECT_CATEGORY
 
 async def step_select_category(update, context):
@@ -110,14 +111,14 @@ async def step_select_category(update, context):
     svcs = {k: v for k, v in SERVICES.items() if v['cat'] == cat_key}
     keyboard = [[InlineKeyboardButton(f"{v['emoji']} {v['name']} — {v['price']} грн", callback_data=f"svc_{k}")] for k, v in svcs.items()]
     keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_categories")])
-    await query.edit_message_text(f"*{CATEGORIES[cat_key]}* — обери послугу 👇", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(f"*{CATEGORIES[cat_key]}* — оберіть послугу 👇", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_SERVICE
 
 async def step_select_service(update, context):
     query = update.callback_query; await query.answer()
     if query.data == "back_to_categories":
         keyboard = [[InlineKeyboardButton(name, callback_data=f"cat_{key}")] for key, name in CATEGORIES.items()]
-        await query.edit_message_text("Обери категорію 👇", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("Оберіть категорію 👇", reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
     svc_id = query.data[4:]; context.user_data['service_id'] = svc_id; s = SERVICES[svc_id]
     await query.edit_message_text(
@@ -134,14 +135,15 @@ async def step_confirm_service(update, context):
         svcs = {k: v for k, v in SERVICES.items() if v['cat'] == cat_key}
         keyboard = [[InlineKeyboardButton(f"{v['emoji']} {v['name']} — {v['price']} грн", callback_data=f"svc_{k}")] for k, v in svcs.items()]
         keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_categories")])
-        await query.edit_message_text(f"*{CATEGORIES[cat_key]}* — обери послугу 👇", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.edit_message_text(f"*{CATEGORIES[cat_key]}* — оберіть послугу 👇", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return SELECT_SERVICE
     days_ua = {"Mon":"Пн","Tue":"Вт","Wed":"Ср","Thu":"Чт","Fri":"Пт","Sat":"Сб","Sun":"Нд"}
     keyboard = []
-    for i in range(1, 15):
+    for i in range(0, 15):
         day = datetime.now() + timedelta(days=i)
         ua = days_ua.get(day.strftime("%a"), "")
-        keyboard.append([InlineKeyboardButton(f"{day.strftime('%d.%m')} ({ua})", callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
+        label = f"{day.strftime('%d.%m')} ({ua})" + (" — сьогодні" if i == 0 else "")
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
     await query.edit_message_text(f"✅ *{SERVICES[context.user_data['service_id']]['name']}*\n\nОбери дату 📅", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_DATE
 
@@ -149,11 +151,22 @@ async def step_select_date(update, context):
     query = update.callback_query; await query.answer()
     date_str = query.data[5:]; context.user_data['date'] = date_str
     booked = db.get_booked_times(date_str)
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    is_today = (date_str == today_str)
+    now = datetime.now()
+
     row, keyboard = [], []
     for t in AVAILABLE_TIMES:
-        if t not in booked:
-            row.append(InlineKeyboardButton(t, callback_data=f"time_{t}"))
-            if len(row) == 4: keyboard.append(row); row = []
+        if t in booked:
+            continue
+        if is_today:
+            t_hour, t_minute = map(int, t.split(":"))
+            slot_time = now.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
+            if slot_time <= now + timedelta(minutes=30):
+                continue
+        row.append(InlineKeyboardButton(t, callback_data=f"time_{t}"))
+        if len(row) == 4: keyboard.append(row); row = []
     if row: keyboard.append(row)
     if not keyboard:
         await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату /start")
@@ -165,19 +178,19 @@ async def step_select_date(update, context):
 async def step_select_time(update, context):
     query = update.callback_query; await query.answer()
     context.user_data['time'] = query.data[5:]
-    await query.edit_message_text("Як тебе звати? 👤\n\nВведи своє ім'я:")
+    await query.edit_message_text("Як Вас звати? 👤\n\nВведіть своє ім'я:")
     return ENTER_NAME
 
 async def step_enter_name(update, context):
     context.user_data['client_name'] = update.message.text.strip()
-    await update.message.reply_text("Введи свій номер телефону 📱\n\nНаприклад: +380671234567")
+    await update.message.reply_text("Введіть свій номер телефону 📱\n\nНаприклад: +380671234567")
     return ENTER_PHONE
 
 async def step_enter_phone(update, context):
     d = context.user_data; d['phone'] = update.message.text.strip()
     s = SERVICES[d['service_id']]; date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
     await update.message.reply_text(
-        f"📋 *Перевір дані запису:*\n\n{s['emoji']} {s['name']}\n💰 {s['price']} грн\n📅 {date_display} о {d['time']}\n👤 {d['client_name']}\n📱 {d['phone']}\n\nВсе вірно?",
+        f"📋 *Перевірте дані запису:*\n\n{s['emoji']} {s['name']}\n💰 {s['price']} грн\n📅 {date_display} о {d['time']}\n👤 {d['client_name']}\n📱 {d['phone']}\n\nВсе вірно?",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Підтвердити", callback_data="confirm_yes"), InlineKeyboardButton("❌ Скасувати", callback_data="confirm_no")]]),
         parse_mode="Markdown"
     )
@@ -186,14 +199,19 @@ async def step_enter_phone(update, context):
 async def step_confirm_booking(update, context):
     query = update.callback_query; await query.answer()
     if query.data == "confirm_no":
-        await query.edit_message_text("Запис скасовано. Натисни 📅 Записатись щоб почати знову.")
+        await query.edit_message_text("Запис скасовано. Натисніть 📅 Записатись щоб почати знову.")
         return ConversationHandler.END
     d = context.user_data; user = update.effective_user; s = SERVICES[d['service_id']]
     date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
     db.create_booking(user_id=user.id, service_id=d['service_id'], date=d['date'], time=d['time'], name=d['client_name'], phone=d['phone'])
     await query.edit_message_text(
-        f"🎉 Запис підтверджено!\n\n{s['emoji']} {s['name']}\n📅 {date_display} о {d['time']}\n\n🔔 Я нагадаю тобі за добу та за годину до візиту!\nЯкщо потрібно перенести — напиши @Butko_Kira"
+        f"🎉 Запис підтверджено!\n\n{s['emoji']} {s['name']}\n📅 {date_display} о {d['time']}\n\n📍 Адреса: ЖК Славутич, Зарічна 4к1\n\n🔔 Я нагадаю Вам за добу та за годину до візиту!\nЯкщо потрібно перенести — напишіть @Butko_Kira\n\nДодаю інструкцію, як потрапити до студії 👇"
     )
+    try:
+        with open("studio_directions.jpg", "rb") as photo:
+            await query.message.reply_photo(photo=photo)
+    except Exception as e:
+        logger.error(f"Studio directions photo error: {e}")
     msg = (f"🆕 Новий запис!\n\n👤 {d['client_name']}\n📱 {d['phone']}\n{s['emoji']} {s['name']} — {s['price']} грн\n📅 {date_display} о {d['time']}\n🔗 @{user.username or '—'} (ID: {user.id})")
     from telegram import Bot as TGBot
     notify_bot = TGBot(token=NOTIFY_TOKEN)
@@ -244,7 +262,7 @@ async def send_reminders_24h(application):
     for b in db.get_bookings_by_date(tomorrow):
         s = SERVICES.get(b['service_id'], {}); date_display = datetime.strptime(b['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
         try:
-            await application.bot.send_message(b['user_id'], f"🔔 Нагадування про запис\n\nЗавтра у тебе запис!\n\n{s.get('emoji','💅')} {s.get('name','')}\n📅 {date_display} о {b['time']}\n\nЧекаємо тебе! 🤗\nЯкщо потрібно перенести — напиши @Butko_Kira")
+            await application.bot.send_message(b['user_id'], f"🔔 Нагадування про запис\n\nЗавтра у Вас запис!\n\n{s.get('emoji','💅')} {s.get('name','')}\n📅 {date_display} о {b['time']}\n\nЧекаємо Вас! 🤗\nЯкщо потрібно перенести — напишіть @Butko_Kira")
         except Exception as e: logger.error(f"24h reminder error {b['user_id']}: {e}")
 
 async def send_reminders_1h(application):
@@ -252,7 +270,7 @@ async def send_reminders_1h(application):
     for b in db.get_bookings_by_date(today):
         if b['time'] == target_time:
             s = SERVICES.get(b['service_id'], {})
-            try: await application.bot.send_message(b['user_id'], f"⏰ Через годину твій запис!\n\n{s.get('emoji','💅')} {s.get('name','')}\n🕐 о {b['time']}\n📍 ЖК Славутич, Зарічна 4к1\n\nДо зустрічі! ✨")
+            try: await application.bot.send_message(b['user_id'], f"⏰ Через годину Ваш запис!\n\n{s.get('emoji','💅')} {s.get('name','')}\n🕐 о {b['time']}\n📍 ЖК Славутич, Зарічна 4к1\n\nДо зустрічі! ✨")
             except Exception as e: logger.error(f"1h reminder error {b['user_id']}: {e}")
 
 # ══════════════════════════════════════════════════════
@@ -307,7 +325,7 @@ async def nb_create_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def nb_post_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['post_text'] = update.message.text
-    await update.message.reply_text("📸 Додай фото або пропусти:",
+    await update.message.reply_text("📸 Додайте фото або пропустіть:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚫 Без фото", callback_data="nb_no_photo")]]))
     return POST_PHOTO
 
@@ -344,7 +362,7 @@ async def nb_schedule_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         day = datetime.now() + timedelta(days=i)
         ua = days_ua.get(day.strftime("%a"), "")
         keyboard.append([InlineKeyboardButton(f"{day.strftime('%d.%m')} ({ua})", callback_data=f"nbdate_{day.strftime('%Y-%m-%d')}")])
-    await query.edit_message_text("📅 Обери дату розсилки:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("📅 Оберіть дату розсилки:", reply_markup=InlineKeyboardMarkup(keyboard))
     return POST_SCHEDULE_DATE
 
 async def nb_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -356,7 +374,7 @@ async def nb_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row.append(InlineKeyboardButton(t, callback_data=f"nbtime_{t}"))
         if len(row) == 4: keyboard.append(row); row = []
     if row: keyboard.append(row)
-    await query.edit_message_text("⏰ Обери час розсилки:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("⏰ Оберіть час розсилки:", reply_markup=InlineKeyboardMarkup(keyboard))
     return POST_SCHEDULE_TIME
 
 async def nb_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -482,17 +500,36 @@ async def nb_delete_messages(sent_messages):
     return deleted
 
 async def nb_cancel(update, context):
-    await update.message.reply_text("Скасовано. Напиши /start")
+    await update.message.reply_text("Скасовано. Напишіть /start")
     return ConversationHandler.END
 
 # ══════════════════════════════════════════════════════
 #  ЗАПУСК ОБОХ БОТІВ
 # ══════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════
+#  HEALTH SERVER (для Render — UptimeRobot пінгує цей URL)
+# ══════════════════════════════════════════════════════
+
+async def health_handler(request):
+    return web.json_response({"status": "ok", "bot": "glowroom-bot", "time": datetime.now().isoformat()})
+
+async def start_health_server():
+    app = web.Application()
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/health", health_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 Health server running on port {port}")
+
 nb_scheduler = AsyncIOScheduler()
 
 async def run():
     db.init_db()
+    await start_health_server()
 
     # Перший бот
     app1 = Application.builder().token(BOT_TOKEN).build()
