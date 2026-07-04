@@ -517,7 +517,7 @@ async def get_video_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     video = update.message.video or update.message.document
     if video:
-        await update.message.reply_text(f"u2705 file_id u0432u0456u0434u0435u043e:\n\n`{video.file_id}`", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ file_id відео:\n\n{video.file_id}")
 
 async def health_handler(request):
     return web.json_response({"status": "ok", "bot": "glowroom-bot", "time": datetime.now().isoformat()})
