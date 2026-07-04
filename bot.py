@@ -511,6 +511,14 @@ async def nb_cancel(update, context):
 #  HEALTH SERVER (для Render — UptimeRobot пінгує цей URL)
 # ══════════════════════════════════════════════════════
 
+
+async def get_video_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    video = update.message.video or update.message.document
+    if video:
+        await update.message.reply_text(f"u2705 file_id u0432u0456u0434u0435u043e:\n\n`{video.file_id}`", parse_mode="Markdown")
+
 async def health_handler(request):
     return web.json_response({"status": "ok", "bot": "glowroom-bot", "time": datetime.now().isoformat()})
 
@@ -556,7 +564,9 @@ async def run():
     app1.add_handler(CommandHandler("admin", admin_panel))
     app1.add_handler(booking_conv)
     app1.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+    app1.add_handler(MessageHandler(filters.VIDEO & filters.ChatType.PRIVATE, get_video_file_id))
     app1.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_menu))
+
 
     # Другий бот
     app2 = Application.builder().token(NOTIFY_TOKEN).build()
