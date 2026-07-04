@@ -76,9 +76,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📖 Гайд догляд":
         await update.message.reply_video(
             video="BAACAgIAAxkBAAIBkmpJOgxnBjvftrJVgNpBwKu1m4Z5AAJJogACGohRSnPuk79XiGhmPAQ",
-            caption="Рада, що тобі цікавий мій досвід! 🤍
+            caption="Рада, що тобі цікавий мій досвід! 🤍\n\nУ цьому відео — три прості правила, як зберегти результат після процедури якомога довше 👇"
 
-У цьому відео — три прості правила, як зберегти результат після процедури якомога довше 👇"
+
         )
 
 async def show_pricelist(update, context):
