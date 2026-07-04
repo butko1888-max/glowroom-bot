@@ -51,6 +51,7 @@ def main_menu_keyboard():
     return ReplyKeyboardMarkup([
         [KeyboardButton("📅 Записатись"), KeyboardButton("💰 Прайс-лист")],
         [KeyboardButton("📋 Мої записи"), KeyboardButton("📞 Контакти")],
+        [KeyboardButton("📖 Гайд догляд")],
         [KeyboardButton("🔄 Перезавантажити")],
     ], resize_keyboard=True)
 
@@ -72,6 +73,13 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📞 Контакти":    await show_contacts(update, context)
     elif text == "📅 Записатись":  return await booking_start(update, context)
     elif text == "🔄 Перезавантажити": return await start(update, context)
+    elif text == "📖 Гайд догляд":
+        await update.message.reply_video(
+            video="BAACAgIAAxkBAAIBkmpJOgxnBjvftrJVgNpBwKu1m4Z5AAJJogACGohRSnPuk79XiGhmPAQ",
+            caption="Рада, що тобі цікавий мій досвід! 🤍
+
+У цьому відео — три прості правила, як зберегти результат після процедури якомога довше 👇"
+        )
 
 async def show_pricelist(update, context):
     lines = ["💅 *Прайс-лист послуг*\n"]
