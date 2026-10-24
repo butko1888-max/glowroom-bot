@@ -1,365 +1,364 @@
 import os
 import logging
-from datetime import datetime
+import traceback
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes, ConversationHandler
+    MessageHandler, filters, ContextTypes, ConversationHandler,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import database as db
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
 NOTIFY_TOKEN = os.getenv("NOTIFY_TOKEN", "8647746412:AAFD1ZRI9jbzr5GdgTkGCKzTI15UX9OvPM0")
 MAIN_BOT_TOKEN = os.getenv("BOT_TOKEN", "8664438342:AAF1i1tHXRZXMsqMrPwXGtQsrjL1ZreEmuA")
 ADMIN_IDS = [715653302, 456903781]
 
-# Стани для створення посту
-(POST_TEXT, POST_PHOTO, POST_SCHEDULE_TYPE, POST_SCHEDULE_DATE, POST_SCHEDULE_TIME, POST_CONFIRM) = range(6)
+POST_TEXT, POST_PHOTO, POST_SCHEDULE_TYPE, POST_SCHEDULE_DATE, POST_SCHEDULE_TIME, POST_CONFIRM = range(6)
 
-# Глобальний планувальник
-scheduler = AsyncIOScheduler()
+scheduler = None  # set from run.py
 
+
+# ═══════════════════════════════════════
+#  UTILS
+# ═══════════════════════════════════════
 
 def is_admin(update: Update):
     return update.effective_user.id in ADMIN_IDS
 
 
-# ══════════════════════════════════════════════════════
-#  СТАРТ
-# ══════════════════════════════════════════════════════
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update):
-        await update.message.reply_text("❌ Немає доступу.")
-        return
-
-    await update.message.reply_text(
-        "👑 *GlowRoom Admin Bot*\n\n"
-        "Тут ти можеш:\n"
-        "📢 Створювати пости і розсилати їх клієнтам\n"
-        "📅 Планувати розсилку на потрібний час\n"
-        "👥 Бачити базу клієнтів\n\n"
-        "Обери дію 👇",
-        reply_markup=main_keyboard(),
-        parse_mode="Markdown"
-    )
-
-
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 Створити пост",      callback_data="menu_create_post")],
-        [InlineKeyboardButton("📋 Заплановані пости",  callback_data="menu_scheduled")],
-        [InlineKeyboardButton("👥 База клієнтів",      callback_data="menu_clients")],
+        [InlineKeyboardButton("📝 Створити пост", callback_data="menu_create_post")],
+        [InlineKeyboardButton("📋 Заплановані пости", callback_data="menu_scheduled")],
+        [InlineKeyboardButton("👥 База клієнтів", callback_data="menu_clients")],
     ])
 
 
+# ═══════════════════════════════════════
+#  START
+# ═══════════════════════════════════════
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("[NB] /start user=%s", update.effective_user.id)
+    if not is_admin(update):
+        await update.message.reply_text("❌ Немає доступу.")
+        return
+    await update.message.reply_text(
+        "👑 *GlowRoom Admin*\n\nОбери дію 👇",
+        reply_markup=main_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+# ═══════════════════════════════════════
+#  MENU
+# ═══════════════════════════════════════
+
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import logging as _lg
-    _lg.getLogger(__name__).error("MENU_HANDLER_CALLED data=%s user=%s", update.callback_query.data if update.callback_query else None, update.effective_user.id if update.effective_user else None)
-    query = update.callback_query
-    await query.answer()
+    q = update.callback_query
+    logger.info("[NB] menu data=%s user=%s", q.data, update.effective_user.id)
+    try:
+        await q.answer()
+    except Exception as e:
+        logger.warning("[NB] answer failed: %s", e)
 
-    if query.data == "menu_clients":
-        clients = db.get_all_clients()
-        await query.edit_message_text(
-            f"👥 *База клієнтів:* {len(clients)} чол.\n\n"
-            + "\n".join([f"• {c['first_name']} @{c['username'] or '—'}" for c in clients[:30]])
-            + ("\n\n_...і ще більше_" if len(clients) > 30 else ""),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]])
-        )
+    if not is_admin(update):
+        try:
+            await q.edit_message_text("❌ Немає доступу.")
+        except Exception:
+            pass
+        return
 
-    elif query.data == "menu_scheduled":
-        posts = db.get_scheduled_posts()
-        if not posts:
-            await query.edit_message_text(
-                "📋 Немає запланованих постів.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]])
+    try:
+        if q.data == "menu_clients":
+            clients = db.get_all_clients()
+            if not clients:
+                text = "👥 База клієнтів порожня."
+            else:
+                lines = [f"👥 *База клієнтів:* {len(clients)}", ""]
+                for c in clients[:30]:
+                    username = c.get("username") or "—"
+                    first_name = c.get("first_name") or "Без імені"
+                    lines.append(f"• {first_name} @{username}")
+                if len(clients) > 30:
+                    lines.append(f"\n_...і ще {len(clients) - 30}_")
+                text = "\n".join(lines)
+
+            await q.edit_message_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]]
+                ),
             )
-            return
-        lines = ["📋 *Заплановані пости:*\n"]
-        for p in posts:
-            lines.append(f"🕐 {p['scheduled_at']}\n📝 {p['text'][:50]}...\n")
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]])
+
+        elif q.data == "menu_scheduled":
+            posts = db.get_scheduled_posts()
+            if not posts:
+                text = "📋 Запланованих постів немає."
+            else:
+                lines = [f"📋 *Заплановані пости:* {len(posts)}", ""]
+                for p in posts:
+                    preview = (p.get("text") or "")[:50]
+                    sched = p.get("scheduled_at") or "?"
+                    lines.append(f"• #{p['id']} — {sched}\n  _{preview}_")
+                text = "\n".join(lines)
+
+            kb_rows = []
+            for p in posts[:10]:
+                kb_rows.append([
+                    InlineKeyboardButton(
+                        f"🗑️ Видалити #{p['id']}",
+                        callback_data=f"nb_delpost_{p['id']}",
+                    )
+                ])
+            kb_rows.append([InlineKeyboardButton("◀️ Назад", callback_data="menu_back")])
+
+            await q.edit_message_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(kb_rows),
+            )
+
+        elif q.data == "menu_back":
+            await q.edit_message_text(
+                "👑 *GlowRoom Admin*\n\nОбери дію 👇",
+                parse_mode="Markdown",
+                reply_markup=main_keyboard(),
+            )
+
+        else:
+            logger.warning("[NB] unknown menu data=%s", q.data)
+
+    except Exception as e:
+        logger.error("[NB] menu_handler ERROR data=%s\n%s", q.data, traceback.format_exc())
+        try:
+            await q.edit_message_text(
+                f"❌ Помилка: `{type(e).__name__}: {str(e)[:200]}`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]]
+                ),
+            )
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════
+#  DELETE SCHEDULED POST
+# ═══════════════════════════════════════
+
+async def nb_delete_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    try:
+        await q.answer()
+    except Exception:
+        pass
+    try:
+        post_id = int(q.data.replace("nb_delpost_", ""))
+        db.delete_scheduled_post(post_id)
+        await q.edit_message_text(
+            f"✅ Пост #{post_id} видалено.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]]
+            ),
+        )
+    except Exception as e:
+        logger.exception("[NB] delete failed")
+        await q.edit_message_text(
+            f"❌ Помилка видалення: {e}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("◀️ Назад", callback_data="menu_back")]]
+            ),
         )
 
-    elif query.data == "menu_back":
-        await query.edit_message_text(
-            "👑 *GlowRoom Admin Bot*\n\nОбери дію 👇",
-            reply_markup=main_keyboard(),
-            parse_mode="Markdown"
-        )
 
-
-# ══════════════════════════════════════════════════════
-#  СТВОРЕННЯ ПОСТУ
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════
+#  CREATE POST  (ConversationHandler)
+# ═══════════════════════════════════════
 
 async def create_post_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    q = update.callback_query
+    await q.answer()
+    if not is_admin(update):
+        await q.edit_message_text("❌ Немає доступу.")
+        return ConversationHandler.END
     context.user_data.clear()
-
-    await query.edit_message_text(
-        "📝 *Створення посту*\n\n"
-        "Напиши текст посту який побачать всі клієнти.\n\n"
-        "_Можна використовувати емодзі 🎉_\n\n"
-        "Для скасування: /cancel",
-        parse_mode="Markdown"
-    )
+    await q.edit_message_text("✏️ Надішли *текст* поста:", parse_mode="Markdown")
     return POST_TEXT
 
 
 async def post_get_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['post_text'] = update.message.text
-
+    context.user_data["post_text"] = update.message.text or ""
     await update.message.reply_text(
-        "📸 Додай фото до посту або натисни *Без фото* 👇",
+        "📸 Прикріпи *фото* або натисни кнопку:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚫 Без фото", callback_data="post_no_photo")]
-        ])
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("➡️ Без фото", callback_data="post_no_photo")]]
+        ),
     )
     return POST_PHOTO
 
 
 async def post_get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]
-    context.user_data['post_photo'] = photo.file_id
+    context.user_data["post_photo"] = update.message.photo[-1].file_id
     return await ask_schedule_type(update, context)
 
 
 async def post_no_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['post_photo'] = None
-    return await ask_schedule_type(update, context, query=query)
+    q = update.callback_query
+    await q.answer()
+    context.user_data["post_photo"] = None
+    return await ask_schedule_type(update, context, query=q)
 
 
 async def ask_schedule_type(update, context, query=None):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📤 Відправити зараз",     callback_data="schedule_now")],
-        [InlineKeyboardButton("⏰ Запланувати на час",   callback_data="schedule_later")],
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Надіслати зараз", callback_data="schedule_now")],
+        [InlineKeyboardButton("⏰ Запланувати", callback_data="schedule_later")],
+        [InlineKeyboardButton("❌ Скасувати", callback_data="schedule_cancel")],
     ])
-    text = "⏰ *Коли відправити пост?*"
-
+    text = "⏱️ Коли надіслати?"
     if query:
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=kb)
     else:
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=kb)
     return POST_SCHEDULE_TYPE
 
 
 async def post_schedule_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "schedule_now":
-        context.user_data['scheduled_at'] = None
-        return await show_post_preview(query, context)
-
-    # Запланувати — просимо дату
+    q = update.callback_query
+    await q.answer()
+    if q.data == "schedule_cancel":
+        await q.edit_message_text("❌ Скасовано.")
+        context.user_data.clear()
+        return ConversationHandler.END
+    if q.data == "schedule_now":
+        return await do_confirm(update, context, send_now=True, query=q)
     today = datetime.now()
-    keyboard = []
-    days_ua = {"Mon": "Пн", "Tue": "Вт", "Wed": "Ср", "Thu": "Чт", "Fri": "Пт", "Sat": "Сб", "Sun": "Нд"}
-    for i in range(0, 14):
-        from datetime import timedelta
-        day = today + timedelta(days=i)
-        ua = days_ua.get(day.strftime("%a"), "")
-        label = f"{day.strftime('%d.%m')} ({ua})"
-        keyboard.append([InlineKeyboardButton(label, callback_data=f"postdate_{day.strftime('%Y-%m-%d')}")])
-
-    await query.edit_message_text(
-        "📅 Обери дату розсилки:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    buttons = []
+    for i in range(7):
+        d = today + timedelta(days=i)
+        label = d.strftime("%d.%m")
+        buttons.append([InlineKeyboardButton(label, callback_data=f"postdate_{d.strftime('%Y-%m-%d')}")])
+    await q.edit_message_text("📅 Оберіть дату:", reply_markup=InlineKeyboardMarkup(buttons))
     return POST_SCHEDULE_DATE
 
 
 async def post_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['post_date'] = query.data.replace("postdate_", "")
-
-    # Вибір часу
-    times = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
-             "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"]
-    keyboard = []
-    row = []
-    for t in times:
-        row.append(InlineKeyboardButton(t, callback_data=f"posttime_{t}"))
-        if len(row) == 4:
-            keyboard.append(row); row = []
-    if row:
-        keyboard.append(row)
-
-    await query.edit_message_text(
-        "⏰ Обери час розсилки:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    q = update.callback_query
+    await q.answer()
+    date_str = q.data.replace("postdate_", "")
+    context.user_data["post_date"] = date_str
+    hours = [[InlineKeyboardButton(f"{h:02d}:00", callback_data=f"posttime_{h:02d}:00")] for h in range(9, 22)]
+    await q.edit_message_text(f"🕐 Час для {date_str}:", reply_markup=InlineKeyboardMarkup(hours))
     return POST_SCHEDULE_TIME
 
 
 async def post_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    t = query.data.replace("posttime_", "")
-    d = context.user_data['post_date']
-    context.user_data['scheduled_at'] = f"{d} {t}"
-    return await show_post_preview(query, context)
+    q = update.callback_query
+    await q.answer()
+    time_str = q.data.replace("posttime_", "")
+    context.user_data["post_time"] = time_str
+    return await do_confirm(update, context, send_now=False, query=q)
 
 
-async def show_post_preview(query, context):
-    d = context.user_data
-    text = d['post_text']
-    scheduled = d.get('scheduled_at')
-    photo = d.get('post_photo')
-
-    schedule_text = f"⏰ Час розсилки: {scheduled}" if scheduled else "📤 Відправити: зараз"
-
-    preview = (
-        f"👁 *Попередній перегляд посту:*\n\n"
-        f"{text}\n\n"
-        f"{'📸 З фото' if photo else '🚫 Без фото'}\n"
-        f"{schedule_text}\n\n"
-        f"Підтвердити?"
-    )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Підтвердити та розіслати", callback_data="post_confirm_yes")],
-        [InlineKeyboardButton("❌ Скасувати",                callback_data="post_confirm_no")],
+async def do_confirm(update, context, send_now, query=None):
+    text = context.user_data.get("post_text", "")
+    scheduled_label = "зараз" if send_now else f"{context.user_data.get('post_date')} {context.user_data.get('post_time')}"
+    preview = f"📬 *Підтвердження*\n\n{text}\n\n⏰ _{scheduled_label}_"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Надіслати" if send_now else "✅ Запланувати", callback_data=f"post_confirm_{'now' if send_now else 'later'}")],
+        [InlineKeyboardButton("❌ Скасувати", callback_data="post_confirm_cancel")],
     ])
-    await query.edit_message_text(preview, reply_markup=keyboard, parse_mode="Markdown")
+    if query:
+        await query.edit_message_text(preview, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await update.message.reply_text(preview, parse_mode="Markdown", reply_markup=kb)
     return POST_CONFIRM
 
 
 async def post_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "post_confirm_no":
-        await query.edit_message_text(
-            "Скасовано.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu_back")]])
-        )
+    q = update.callback_query
+    await q.answer()
+    if q.data == "post_confirm_cancel":
+        await q.edit_message_text("❌ Скасовано.")
+        context.user_data.clear()
         return ConversationHandler.END
-
-    d = context.user_data
-    text = d['post_text']
-    photo = d.get('post_photo')
-    scheduled_at = d.get('scheduled_at')
-
-    if scheduled_at:
-        # Зберігаємо в БД і плануємо
-        post_id = db.save_scheduled_post(text, photo, scheduled_at)
-        dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M")
-        scheduler.add_job(
-            send_broadcast,
-            'date',
-            run_date=dt,
-            args=[context.application, text, photo, post_id],
-            id=f"post_{post_id}"
-        )
-        await query.edit_message_text(
-            f"✅ Пост заплановано на {scheduled_at}!\n\nКлієнти отримають його автоматично.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu_back")]])
-        )
-    else:
-        # Відправляємо зараз
-        await query.edit_message_text("📤 Розсилаю пост...")
-        sent, failed = await send_broadcast(context.application, text, photo)
-        await context.bot.send_message(
-            query.from_user.id,
-            f"✅ Розсилка завершена!\nВідправлено: {sent} | Не доставлено: {failed}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu_back")]])
-        )
-
-    return ConversationHandler.END
-
-
-async def send_broadcast(application, text, photo, post_id=None):
-    from telegram import Bot as TGBot
-    main_bot = TGBot(token=MAIN_BOT_TOKEN)
-    clients = db.get_all_clients()
-    sent = failed = 0
-
-    for client in clients:
+    text = context.user_data.get("post_text", "")
+    photo = context.user_data.get("post_photo")
+    if q.data == "post_confirm_now":
         try:
-            if photo:
-                await main_bot.send_photo(client['user_id'], photo=photo, caption=text)
-            else:
-                await main_bot.send_message(client['user_id'], text)
-            sent += 1
+            count = await send_broadcast(context.bot, text, photo)
+            await q.edit_message_text(f"✅ Надіслано {count} клієнтам.")
         except Exception as e:
-            logger.error(f"Broadcast error {client['user_id']}: {e}")
-            failed += 1
-
-    if post_id:
-        db.mark_post_sent(post_id)
-
-    return sent, failed
+            logger.exception("[NB] send now failed")
+            await q.edit_message_text(f"❌ Помилка: {e}")
+    else:
+        date = context.user_data.get("post_date")
+        time_s = context.user_data.get("post_time")
+        scheduled_at = f"{date} {time_s}"
+        try:
+            post_id = db.create_scheduled_post(text, photo, scheduled_at)
+            global scheduler
+            try:
+                if scheduler is not None:
+                    run_at = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M")
+                    if run_at > datetime.now():
+                        scheduler.add_job(send_broadcast_job, "date", run_date=run_at, args=[context.bot, text, photo, post_id], id=f"post_{post_id}")
+            except Exception:
+                logger.exception("[NB] schedule add_job failed")
+            await q.edit_message_text(f"✅ Заплановано на {scheduled_at} (#{post_id})")
+        except Exception as e:
+            logger.exception("[NB] schedule failed")
+            await q.edit_message_text(f"❌ Помилка: {e}")
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Скасовано. Напиши /start щоб почати знову.")
+    await update.message.reply_text("❌ Скасовано.")
+    context.user_data.clear()
     return ConversationHandler.END
 
 
-# ══════════════════════════════════════════════════════
-#  ЗАПУСК
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════
+#  BROADCAST
+# ═══════════════════════════════════════
 
-def main():
-    db.init_db()
-    app = Application.builder().token(NOTIFY_TOKEN).build()
-
-    scheduler.start()
-
-    # Відновлюємо заплановані пости після перезапуску
-    posts = db.get_scheduled_posts()
-    for p in posts:
+async def send_broadcast(bot, text, photo, post_id=None):
+    try:
+        clients = db.get_all_clients()
+    except Exception:
+        logger.exception("[NB] broadcast get_all_clients failed")
+        return 0
+    sent = 0
+    for c in clients:
+        uid = c.get("user_id")
+        if not uid:
+            continue
         try:
-            dt = datetime.strptime(p['scheduled_at'], "%Y-%m-%d %H:%M")
-            if dt > datetime.now():
-                scheduler.add_job(
-                    send_broadcast,
-                    'date',
-                    run_date=dt,
-                    args=[app, p['text'], p['photo'], p['id']],
-                    id=f"post_{p['id']}"
-                )
+            if photo:
+                await bot.send_photo(uid, photo, caption=text, parse_mode="Markdown")
+            else:
+                await bot.send_message(uid, text, parse_mode="Markdown")
+            sent += 1
         except Exception as e:
-            logger.error(f"Restore scheduled post error: {e}")
-
-    post_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(create_post_start, pattern="^menu_create_post$")],
-        states={
-            POST_TEXT:          [MessageHandler(filters.TEXT & ~filters.COMMAND, post_get_text)],
-            POST_PHOTO:         [
-                MessageHandler(filters.PHOTO, post_get_photo),
-                CallbackQueryHandler(post_no_photo, pattern="^post_no_photo$"),
-            ],
-            POST_SCHEDULE_TYPE: [CallbackQueryHandler(post_schedule_type, pattern="^schedule_")],
-            POST_SCHEDULE_DATE: [CallbackQueryHandler(post_schedule_date, pattern="^postdate_")],
-            POST_SCHEDULE_TIME: [CallbackQueryHandler(post_schedule_time, pattern="^posttime_")],
-            POST_CONFIRM:       [CallbackQueryHandler(post_confirm, pattern="^post_confirm_")],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,
-    )
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(post_conv)
-    app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_"))
-
-    logger.info("Admin bot запущено!")
-    app.run_polling(drop_pending_updates=True)
+            logger.warning("[NB] broadcast fail user=%s: %s", uid, e)
+    if post_id:
+        try:
+            db.delete_scheduled_post(post_id)
+        except Exception:
+            logger.exception("[NB] delete scheduled failed")
+    return sent
 
 
-if __name__ == "__main__":
-    main()
+async def send_broadcast_job(bot, text, photo, post_id):
+    try:
+        await send_broadcast(bot, text, photo, post_id=post_id)
+    except Exception:
+        logger.exception("[NB] scheduled broadcast failed")
