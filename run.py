@@ -10,6 +10,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+import traceback as _tb
+async def _err_handler(update, context):
+    logger.error("HANDLER_ERROR: %s", context.error)
+    logger.error("TRACEBACK:\n%s", "".join(_tb.format_exception(type(context.error), context.error, context.error.__traceback__)))
+
 import database as db
 import bot as b
 import notify_bot as nb
@@ -82,6 +87,8 @@ async def main():
 
     app1 = build_main_app()
     app2 = build_notify_app()
+    app1.add_error_handler(_err_handler)
+    app2.add_error_handler(_err_handler)
 
     # Планувальник нагадувань для першого бота
     scheduler1 = AsyncIOScheduler()
