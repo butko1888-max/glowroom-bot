@@ -59,27 +59,11 @@ def build_main_app():
 
 def build_notify_app():
     app = Application.builder().token(NOTIFY_TOKEN).build()
-
-    post_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(nb.create_post_start, pattern="^menu_create_post$")],
-        states={
-            nb.POST_TEXT:          [MessageHandler(filters.TEXT & ~filters.COMMAND, nb.post_get_text)],
-            nb.POST_PHOTO:         [
-                MessageHandler(filters.PHOTO, nb.post_get_photo),
-                CallbackQueryHandler(nb.post_no_photo, pattern="^post_no_photo$"),
-            ],
-            nb.POST_SCHEDULE_TYPE: [CallbackQueryHandler(nb.post_schedule_type, pattern="^schedule_")],
-            nb.POST_SCHEDULE_DATE: [CallbackQueryHandler(nb.post_schedule_date, pattern="^postdate_")],
-            nb.POST_SCHEDULE_TIME: [CallbackQueryHandler(nb.post_schedule_time, pattern="^posttime_")],
-            nb.POST_CONFIRM:       [CallbackQueryHandler(nb.post_confirm,        pattern="^post_confirm_")],
-        },
-        fallbacks=[CommandHandler("cancel", nb.cancel)],
-        per_message=False,
-    )
     app.add_handler(CommandHandler("start", nb.start))
-    app.add_handler(post_conv)
+    app.add_handler(CallbackQueryHandler(nb.nb_delete_now, pattern="^nb_delpost_"))
     app.add_handler(CallbackQueryHandler(nb.menu_handler, pattern="^menu_"))
     return app
+
 
 
 async def main():
