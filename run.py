@@ -16,7 +16,9 @@ import database as db
 import bot as b
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
+import threading, http.server
+_ok = lambda s, *a: (s.send_response(200), s.end_headers(), s.wfile.write(b"ok"))
+threading.Thread(target=http.server.HTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), type("H", (http.server.BaseHTTPRequestHandler,), {"do_GET": _ok, "do_HEAD": _ok, "log_message": lambda s, *a: None})).serve_forever, daemon=True).start()
 
 async def _err_handler(update, context):
     logger.error("ERR: %s\n%s", context.error,
