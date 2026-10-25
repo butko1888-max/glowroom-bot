@@ -70,7 +70,8 @@ async def main():
     db.init_db()
 
     app1 = build_main_app()
-    app2 = build_notify_app()
+    # app2 = build_notify_app() (disabled, admin.py is new service)
+    app2 = None
     app1.add_error_handler(_err_handler)
     app2.add_error_handler(_err_handler)
 
@@ -100,11 +101,11 @@ async def main():
     logger.info("🚀 Запускаємо обидва боти!")
 
     await app1.initialize()
-    await app2.initialize()
+    # await app2.initialize() # disabled
     await app1.start()
-    await app2.start()
+    # await app2.start() # disabled
     await app1.updater.start_polling(drop_pending_updates=True)
-    await app2.updater.start_polling(drop_pending_updates=True)
+    # app2 disabled
 
     logger.info("✅ Обидва боти працюють!")
     await asyncio.Event().wait()
