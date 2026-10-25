@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 import traceback
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 import database as db
 import bot as b
 
-BOT_TOKEN = "8664438342:AAF1i1tHXRZXMsqMrPwXGtQsrjL1ZreEmuA"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 
 async def _err_handler(update, context):
