@@ -10,6 +10,7 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from aiohttp import web
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes,
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 TOKEN       = os.getenv("TOKEN", "8647746412:AAFD1ZRI9jbzr5GdgTkGCKzTI15UX9OvPM0")
 DATABASE_URL= os.getenv("DATABASE_URL", "postgresql://neondb_owner:npg_amcl2Yo7AduF@ep-dawn-glade-b4a7c7vq-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require")
 ADMIN_IDS   = [int(x) for x in os.getenv("ADMIN_IDS", "715653302,456903781").split(",") if x.strip()]
+PORT        = int(os.getenv("PORT", "10000"))
 
 # ───── DB helpers ─────
 def _conn():
@@ -326,6 +328,14 @@ async def scheduler_loop(app):
 
 async def main():
     db_init()
+    async def _health(req): return web.Response(text="ok")
+    _web = web.Application()
+    _web.router.add_get("/", _health)
+    _web.router.add_get("/health", _health)
+    _runner = web.AppRunner(_web)
+    await _runner.setup()
+    await web.TCPSite(_runner, "0.0.0.0", PORT).start()
+    logger.info("Health server on %d", PORT)
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(menu_cb))
