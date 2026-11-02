@@ -24,6 +24,18 @@ DATABASE_URL= os.getenv("DATABASE_URL", "postgresql://neondb_owner:npg_amcl2Yo7A
 ADMIN_IDS   = [int(x) for x in os.getenv("ADMIN_IDS", "715653302,456903781").split(",") if x.strip()]
 PORT        = int(os.getenv("PORT", "10000"))
 
+# ───── Weekly schedule ─────
+SCHEDULE_BY_WEEKDAY = {
+    0: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"],
+    1: ["12:00", "13:00", "14:00", "16:15", "17:00", "18:00"],
+    2: ["13:30", "14:30", "15:30", "16:30", "17:30"],
+    3: ["14:00", "15:00", "16:00", "18:30"],
+    4: ["14:00", "15:00", "16:00", "17:00", "18:00"],
+    5: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "17:00"],
+    6: ["10:00", "11:00", "12:00", "13:00", "14:00"],
+}
+WEEKDAY_UA = {0:"Пн", 1:"Вт", 2:"Ср", 3:"Чт", 4:"Пт", 5:"Сб", 6:"Вс"}
+
 # ───── DB helpers ─────
 def _conn():
     return psycopg2.connect(DATABASE_URL)
@@ -71,12 +83,76 @@ def db_delete_post(post_id):
         cur.execute("DELETE FROM scheduled_posts WHERE id=%s", (post_id,))
         c.commit()
 
+
+# ───── Booking management ─────
+def db_get_upcoming_bookings():
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM bookings WHERE date>=%s AND status='active' ORDER BY date, time LIMIT 50",
+            (today,)
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+def db_get_booking(booking_id):
+    with _conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM bookings WHERE id=%s", (booking_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def db_cancel_booking(booking_id):
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("UPDATE bookings SET status='cancelled' WHERE id=%s", (booking_id,))
+        c.commit()
+
+
+# ───── Block/unblock slots ─────
+def db_block_slot(date, time):
+    with _conn() as c, c.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS blocked_slots (id SERIAL PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW(), UNIQUE(date, time))"
+        )
+        cur.execute(
+            "INSERT INTO blocked_slots(date, time) VALUES (%s, %s) ON CONFLICT (date, time) DO NOTHING",
+            (date, time)
+        )
+        c.commit()
+
+def db_unblock_slot(date, time):
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("DELETE FROM blocked_slots WHERE date=%s AND time=%s", (date, time))
+        c.commit()
+
+def db_get_blocked_slots_from(from_date):
+    with _conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        try:
+            cur.execute("SELECT * FROM blocked_slots WHERE date>=%s ORDER BY date, time", (from_date,))
+            return [dict(r) for r in cur.fetchall()]
+        except Exception:
+            return []
+
+def db_get_blocked_for_date(date):
+    with _conn() as c, c.cursor() as cur:
+        try:
+            cur.execute("SELECT time FROM blocked_slots WHERE date=%s", (date,))
+            return [r[0] for r in cur.fetchall()]
+        except Exception:
+            return []
+
+def db_get_booked_times_adm(date):
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("SELECT time FROM bookings WHERE date=%s AND status='active'", (date,))
+        return [r[0] for r in cur.fetchall()]
+
 # ───── UI ─────
 def is_admin(update: Update):
     return update.effective_user and update.effective_user.id in ADMIN_IDS
 
 def main_kb():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Записи",             callback_data="m_bookings")],
+        [InlineKeyboardButton("🔒 Заблокувати час",    callback_data="m_block")],
+        [InlineKeyboardButton("🔓 Розблоковані слоти", callback_data="m_blocked")],
         [InlineKeyboardButton("📝 Створити пост",     callback_data="m_post")],
         [InlineKeyboardButton("📋 Заплановані пости", callback_data="m_sched")],
         [InlineKeyboardButton("👥 База клієнтів",     callback_data="m_clients")],
@@ -115,7 +191,131 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         data = q.data
 
-        if data == "m_clients":
+        if data == "m_bookings":
+            bookings = db_get_upcoming_bookings()
+            if not bookings:
+                await q.edit_message_text("📅 Активних записів немає.", reply_markup=back_kb())
+                return
+            lines = [f"📅 *Активних записів:* {len(bookings)}", ""]
+            rows_bk = []
+            for b in bookings[:30]:
+                try:
+                    d = datetime.strptime(b.get("date",""), "%Y-%m-%d").strftime("%d.%m")
+                except Exception:
+                    d = b.get("date","?")
+                lines.append(f"• #{b['id']} · {d} {b.get('time','?')} · {b.get('name','?')} · {b.get('phone','?')}")
+                rows_bk.append([InlineKeyboardButton(f"❌ Відмінити #{b['id']}", callback_data=f"b_cancel_{b['id']}")])
+            rows_bk.append([InlineKeyboardButton("◀️ Назад", callback_data="m_back")])
+            await q.edit_message_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(rows_bk))
+
+        elif data.startswith("b_cancel_"):
+            bid = int(data.replace("b_cancel_", ""))
+            booking = db_get_booking(bid)
+            if not booking:
+                await q.edit_message_text("Запис не знайдено.", reply_markup=back_kb())
+                return
+            try:
+                d = datetime.strptime(booking.get("date",""), "%Y-%m-%d").strftime("%d.%m")
+            except Exception:
+                d = booking.get("date","?")
+            rows_cf = [
+                [InlineKeyboardButton("✅ Так, відмінити", callback_data=f"b_confirm_{bid}")],
+                [InlineKeyboardButton("↩️ Ні, залишити",   callback_data="m_bookings")],
+            ]
+            await q.edit_message_text(
+                f"❗️ Відмінити запис #{bid} · {d} {booking.get('time','?')} · {booking.get('name','?')}?",
+                reply_markup=InlineKeyboardMarkup(rows_cf)
+            )
+
+        elif data.startswith("b_confirm_"):
+            bid = int(data.replace("b_confirm_", ""))
+            if db_get_booking(bid):
+                db_cancel_booking(bid)
+                await q.edit_message_text(f"✅ Запис #{bid} відмінено.", reply_markup=back_kb())
+            else:
+                await q.edit_message_text("Запис не знайдено.", reply_markup=back_kb())
+
+        elif data == "m_block":
+            today_ = datetime.now()
+            rows_bl = []
+            for i in range(14):
+                dd = today_ + timedelta(days=i)
+                wd = WEEKDAY_UA.get(dd.weekday(), "")
+                label = f"{dd.strftime('%d.%m')} ({wd})" + (" — сьогодні" if i == 0 else "")
+                rows_bl.append([InlineKeyboardButton(label, callback_data=f"blk_d_{dd.strftime('%Y-%m-%d')}")])
+            rows_bl.append([InlineKeyboardButton("◀️ Назад", callback_data="m_back")])
+            await q.edit_message_text("📅 Оберіть дату щоб заблокувати слот:",
+                                      reply_markup=InlineKeyboardMarkup(rows_bl))
+
+        elif data.startswith("blk_d_"):
+            date_str = data.replace("blk_d_", "")
+            try:
+                dt_ = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                await q.edit_message_text("Невірна дата.", reply_markup=back_kb())
+                return
+            slots_bl = SCHEDULE_BY_WEEKDAY.get(dt_.weekday(), [])
+            booked_set = set(db_get_booked_times_adm(date_str))
+            blocked_set = set(db_get_blocked_for_date(date_str))
+            rows_slot = []
+            row_ = []
+            for t in slots_bl:
+                tag = ""
+                cb = f"blk_t_{date_str}_{t}"
+                if t in blocked_set:
+                    tag = "🔒"; cb = f"blk_u_{date_str}_{t}"
+                elif t in booked_set:
+                    tag = "📌"
+                row_.append(InlineKeyboardButton(f"{tag}{t}", callback_data=cb))
+                if len(row_) == 3:
+                    rows_slot.append(row_); row_ = []
+            if row_: rows_slot.append(row_)
+            rows_slot.append([InlineKeyboardButton("◀️ Назад", callback_data="m_block")])
+            await q.edit_message_text(
+                f"🕐 Слоти на {dt_.strftime('%d.%m.%Y')}\n\n📌 — вже є запис\n🔒 — заблоковано (натисни щоб розблокувати)\nІнші — натисни щоб заблокувати",
+                reply_markup=InlineKeyboardMarkup(rows_slot)
+            )
+
+        elif data.startswith("blk_t_"):
+            parts_ = data.replace("blk_t_", "").split("_", 1)
+            if len(parts_) == 2:
+                db_block_slot(parts_[0], parts_[1])
+                q.data = f"blk_d_{parts_[0]}"
+                await menu_cb(update, context)
+                return
+
+        elif data.startswith("blk_u_"):
+            parts_ = data.replace("blk_u_", "").split("_", 1)
+            if len(parts_) == 2:
+                db_unblock_slot(parts_[0], parts_[1])
+                q.data = f"blk_d_{parts_[0]}"
+                await menu_cb(update, context)
+                return
+
+        elif data == "m_blocked":
+            today_s = datetime.now().strftime("%Y-%m-%d")
+            blocked_list = db_get_blocked_slots_from(today_s)
+            if not blocked_list:
+                await q.edit_message_text("🔓 Заблокованих слотів немає.", reply_markup=back_kb())
+                return
+            lines_bl = [f"🔒 *Заблоковано:* {len(blocked_list)}", ""]
+            rows_bl2 = []
+            for bb in blocked_list[:30]:
+                try:
+                    d = datetime.strptime(bb["date"], "%Y-%m-%d").strftime("%d.%m")
+                except Exception:
+                    d = bb["date"]
+                lines_bl.append(f"• {d} {bb['time']}")
+                rows_bl2.append([InlineKeyboardButton(
+                    f"🔓 Розблокувати {d} {bb['time']}",
+                    callback_data=f"blk_u_{bb['date']}_{bb['time']}"
+                )])
+            rows_bl2.append([InlineKeyboardButton("◀️ Назад", callback_data="m_back")])
+            await q.edit_message_text("\n".join(lines_bl), parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(rows_bl2))
+
+        elif data == "m_clients":
             clients = db_get_clients()
             if not clients:
                 text = "👥 База порожня."
