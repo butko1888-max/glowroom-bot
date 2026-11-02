@@ -41,7 +41,75 @@ CATEGORIES = {
     "complex": "👑 Комплекс",
     "waxing":  "🪶 Вакcинг",
 }
-AVAILABLE_TIMES = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00"]
+AVAILABLE_TIMES = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00"]  # legacy
+
+# ─────────────────────────────────────────────────────
+#  Weekly schedule (0=Mon ... 6=Sun) and service durations
+# ─────────────────────────────────────────────────────
+SCHEDULE_BY_WEEKDAY = {
+    0: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"],
+    1: ["12:00", "13:00", "14:00", "16:15", "17:00", "18:00"],
+    2: ["13:30", "14:30", "15:30", "16:30", "17:30"],
+    3: ["14:00", "15:00", "16:00", "18:30"],
+    4: ["14:00", "15:00", "16:00", "17:00", "18:00"],
+    5: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "17:00"],
+    6: ["10:00", "11:00", "12:00", "13:00", "14:00"],
+}
+
+SERVICE_DURATION = {
+    "lash_lam": 120,
+    "full_complex": 120,
+}
+DEFAULT_DURATION = 60
+
+
+def _to_minutes(t):
+    h, m = map(int, t.split(":"))
+    return h * 60 + m
+
+
+def get_duration(service_id):
+    return SERVICE_DURATION.get(service_id, DEFAULT_DURATION)
+
+
+def get_slots_for_date(date_str, service_id):
+    """Return list of valid slot start times for given date and service,
+    accounting for weekday schedule, admin blocks, and existing bookings."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return []
+    scheduled = SCHEDULE_BY_WEEKDAY.get(dt.weekday(), [])
+    if not scheduled:
+        return []
+
+    new_duration = get_duration(service_id)
+
+    try:
+        existing = db.get_bookings_with_service(date_str)
+    except Exception:
+        existing = [(t, None) for t in db.get_booked_times(date_str)]
+    busy_ranges = []
+    for t, sid in existing:
+        s = _to_minutes(t)
+        e = s + get_duration(sid)
+        busy_ranges.append((s, e))
+
+    try:
+        for t in db.get_blocked_slots(date_str):
+            s = _to_minutes(t)
+            busy_ranges.append((s, s + 120))
+    except Exception:
+        pass
+
+    result = []
+    for slot in scheduled:
+        s = _to_minutes(slot)
+        e = s + new_duration
+        conflicts = any(s < br[1] and br[0] < e for br in busy_ranges)
+        if not conflicts:
+            result.append(slot)
+    return result
 
 # ══════════════════════════════════════════════════════
 #  ПЕРШИЙ БОТ — клієнтський
@@ -154,16 +222,14 @@ async def step_confirm_service(update, context):
 async def step_select_date(update, context):
     query = update.callback_query; await query.answer()
     date_str = query.data[5:]; context.user_data['date'] = date_str
-    booked = db.get_booked_times(date_str)
-
+    service_id = context.user_data.get('service_id')
     today_str = datetime.now().strftime("%Y-%m-%d")
     is_today = (date_str == today_str)
     now = datetime.now()
 
+    available = get_slots_for_date(date_str, service_id)
     row, keyboard = [], []
-    for t in AVAILABLE_TIMES:
-        if t in booked:
-            continue
+    for t in available:
         if is_today:
             t_hour, t_minute = map(int, t.split(":"))
             slot_time = now.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
@@ -691,16 +757,14 @@ async def step_confirm_service(update, context):
 async def step_select_date(update, context):
     query = update.callback_query; await query.answer()
     date_str = query.data[5:]; context.user_data['date'] = date_str
-    booked = db.get_booked_times(date_str)
-
+    service_id = context.user_data.get('service_id')
     today_str = datetime.now().strftime("%Y-%m-%d")
     is_today = (date_str == today_str)
     now = datetime.now()
 
+    available = get_slots_for_date(date_str, service_id)
     row, keyboard = [], []
-    for t in AVAILABLE_TIMES:
-        if t in booked:
-            continue
+    for t in available:
         if is_today:
             t_hour, t_minute = map(int, t.split(":"))
             slot_time = now.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
