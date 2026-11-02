@@ -33,6 +33,13 @@ def init_db():
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS blocked_slots (
+            id SERIAL PRIMARY KEY,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(date, time)
+        );
         CREATE TABLE IF NOT EXISTS scheduled_posts (
             id SERIAL PRIMARY KEY,
             text TEXT,
@@ -98,6 +105,16 @@ def get_booked_times(date: str):
     return [r[0] for r in rows]
 
 
+def get_bookings_with_service(date: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT time, service_id FROM bookings WHERE date=%s AND status='active'", (date,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [(r[0], r[1]) for r in rows]
+
+
 def get_client_bookings(user_id: int):
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_conn()
@@ -129,6 +146,69 @@ def get_upcoming_bookings(from_date: str):
         "SELECT * FROM bookings WHERE date>=%s AND status='active' ORDER BY date, time",
         (from_date,)
     )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_booking_by_id(booking_id: int):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM bookings WHERE id=%s", (booking_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def cancel_booking(booking_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE bookings SET status='cancelled' WHERE id=%s", (booking_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+# ===== Blocked slots =====
+def block_slot(date: str, time: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO blocked_slots (date, time) VALUES (%s, %s) ON CONFLICT (date, time) DO NOTHING",
+            (date, time)
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def unblock_slot(date: str, time: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM blocked_slots WHERE date=%s AND time=%s", (date, time))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_blocked_slots(date: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT time FROM blocked_slots WHERE date=%s", (date,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def get_all_blocked_slots(from_date: str):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM blocked_slots WHERE date>=%s ORDER BY date, time", (from_date,))
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -168,7 +248,7 @@ def mark_post_sent(post_id: int):
     conn.close()
 
 
-def save_broadcast_messages(sent_messages: list) -> int:
+def save_broadcast_messages(sent_messages):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -182,7 +262,7 @@ def save_broadcast_messages(sent_messages: list) -> int:
     return broadcast_id
 
 
-def get_broadcast_messages(broadcast_id: int) -> list:
+def get_broadcast_messages(broadcast_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT messages FROM broadcasts WHERE id=%s", (broadcast_id,))
@@ -194,7 +274,7 @@ def get_broadcast_messages(broadcast_id: int) -> list:
     return json.loads(row[0])
 
 
-def delete_broadcast_messages(broadcast_id: int):
+def delete_broadcast_messages(broadcast_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM broadcasts WHERE id=%s", (broadcast_id,))
