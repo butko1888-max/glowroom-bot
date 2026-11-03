@@ -30,9 +30,9 @@ SERVICES = {
     "brow_color":      {"cat": "brows",   "name": "Фарбування + корекція",                "price": 500,  "emoji": "🎨"},
     "brow_correction": {"cat": "brows",   "name": "Корекція (віск / пінцет)",             "price": 300,  "emoji": "✂️"},
     "brow_bleach":     {"cat": "brows",   "name": "Освітлення + тонування + корекція",    "price": 600,  "emoji": "🌟"},
-    "lash_lam":        {"cat": "lashes",  "name": "Комплекс ламінування (+ догляд)",      "price": 750,  "emoji": "💎"},
+    "lash_lam":        {"cat": "lashes",  "name": "Комплекс ламінування (+ догляд)",      "price": 800,  "emoji": "💎"},
     "lash_color":      {"cat": "lashes",  "name": "Фарбування вій",                       "price": 300,  "emoji": "🎨"},
-    "full_complex":    {"cat": "complex", "name": "Ламі вій + ламі брів",                 "price": 1300, "emoji": "👑"},
+    "full_complex":    {"cat": "complex", "name": "Ламі вій + ламі брів",                 "price": 1399, "emoji": "👑"},
     "waxing_other":    {"cat": "waxing",  "name": "Вакcинг інших зон",                    "price": 100,  "emoji": "🪶"},
 }
 CATEGORIES = {
