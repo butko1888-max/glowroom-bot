@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN    = os.getenv("BOT_TOKEN",    "8664438342:AAF1i1tHXRZXMsqMrPwXGtQsrjL1ZreEmuA")
-NOTIFY_TOKEN = os.getenv("NOTIFY_TOKEN", "8647746412:AAFD1ZRI9jbzr5GdgTkGCKzTI15UX9OvPM0")
+NOTIFY_TOKEN = os.getenv("GLOWROOM_ADMIN_TOKEN", os.getenv("NOTIFY_TOKEN", "8647746412:AAFD1ZRI9jbzr5GdgTkGCKzTI15UX9OvPM0"))
 ADMIN_IDS    = [715653302, 456903781]
 
 # ══════════════════════════════════════════════════════
@@ -241,7 +241,7 @@ async def step_select_date(update, context):
     if not keyboard:
         await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату /start")
         return ConversationHandler.END
-    date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+    date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")"
     await query.edit_message_text(f"📅 Дата: *{date_display}*\n\nОбери зручний час ⏰", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_TIME
 
@@ -258,7 +258,7 @@ async def step_enter_name(update, context):
 
 async def step_enter_phone(update, context):
     d = context.user_data; d['phone'] = update.message.text.strip()
-    s = SERVICES[d['service_id']]; date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
+    s = SERVICES[d['service_id']]; date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")"
     await update.message.reply_text(
         f"📋 *Перевірте дані запису:*\n\n{s['emoji']} {s['name']}\n💰 {s['price']} грн\n📅 {date_display} о {d['time']}\n👤 {d['client_name']}\n📱 {d['phone']}\n\nВсе вірно?",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Підтвердити", callback_data="confirm_yes"), InlineKeyboardButton("❌ Скасувати", callback_data="confirm_no")]]),
@@ -272,7 +272,7 @@ async def step_confirm_booking(update, context):
         await query.edit_message_text("Запис скасовано. Натисніть 📅 Записатись щоб почати знову.")
         return ConversationHandler.END
     d = context.user_data; user = update.effective_user; s = SERVICES[d['service_id']]
-    date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
+    date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")"
     db.create_booking(user_id=user.id, service_id=d['service_id'], date=d['date'], time=d['time'], name=d['client_name'], phone=d['phone'])
     await query.edit_message_text(
         f"🎉 Запис підтверджено!\n\n{s['emoji']} {s['name']}\n📅 {date_display} о {d['time']}\n\n📍 Адреса: ЖК Славутич, Зарічна 4к1\n\n🔔 Я нагадаю Вам за добу та за годину до візиту!\nЯкщо потрібно перенести — напишіть @Butko_Kira\n\nДодаю інструкцію, як потрапити до студії 👇"
@@ -776,7 +776,7 @@ async def step_select_date(update, context):
     if not keyboard:
         await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату /start")
         return ConversationHandler.END
-    date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+    date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")"
     await query.edit_message_text(f"📅 Дата: *{date_display}*\n\nОбери зручний час ⏰", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_TIME
 
@@ -793,7 +793,7 @@ async def step_enter_name(update, context):
 
 async def step_enter_phone(update, context):
     d = context.user_data; d['phone'] = update.message.text.strip()
-    s = SERVICES[d['service_id']]; date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
+    s = SERVICES[d['service_id']]; date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")"
     await update.message.reply_text(
         f"📋 *Перевірте дані запису:*\n\n{s['emoji']} {s['name']}\n💰 {s['price']} грн\n📅 {date_display} о {d['time']}\n👤 {d['client_name']}\n📱 {d['phone']}\n\nВсе вірно?",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Підтвердити", callback_data="confirm_yes"), InlineKeyboardButton("❌ Скасувати", callback_data="confirm_no")]]),
@@ -807,7 +807,7 @@ async def step_confirm_booking(update, context):
         await query.edit_message_text("Запис скасовано. Натисніть 📅 Записатись щоб почати знову.")
         return ConversationHandler.END
     d = context.user_data; user = update.effective_user; s = SERVICES[d['service_id']]
-    date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y")
+    date_display = datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")" + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(d['date'], "%Y-%m-%d").weekday()] + ")"
     db.create_booking(user_id=user.id, service_id=d['service_id'], date=d['date'], time=d['time'], name=d['client_name'], phone=d['phone'])
     await query.edit_message_text(
         f"🎉 Запис підтверджено!\n\n{s['emoji']} {s['name']}\n📅 {date_display} о {d['time']}\n\n📍 Адреса: ЖК Славутич, Зарічна 4к1\n\n🔔 Я нагадаю Вам за добу та за годину до візиту!\nЯкщо потрібно перенести — напишіть @Butko_Kira\n\nДодаю інструкцію, як потрапити до студії 👇"
