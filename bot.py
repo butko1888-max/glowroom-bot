@@ -216,6 +216,7 @@ async def step_confirm_service(update, context):
         ua = days_ua.get(day.strftime("%a"), "")
         label = f"{day.strftime('%d.%m')} ({ua})" + (" — сьогодні" if i == 0 else "")
         keyboard.append([InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
+    keyboard.append([InlineKeyboardButton("⬅️ Інша послуга", callback_data=f"back_to_cat_{SERVICES[context.user_data['service_id']]['cat']}")])
     await query.edit_message_text(f"✅ *{SERVICES[context.user_data['service_id']]['name']}*\n\nОбери дату 📅", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_DATE
 
@@ -238,15 +239,31 @@ async def step_select_date(update, context):
         row.append(InlineKeyboardButton(t, callback_data=f"time_{t}"))
         if len(row) == 4: keyboard.append(row); row = []
     if row: keyboard.append(row)
-    if not keyboard:
-        await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату /start")
-        return ConversationHandler.END
+    keyboard.append([InlineKeyboardButton("⬅️ Інша дата", callback_data="back_to_dates")])
+    if len(keyboard) == 1:
+        await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return SELECT_TIME
     date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")"
     await query.edit_message_text(f"📅 Дата: *{date_display}*\n\nОбери зручний час ⏰", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_TIME
 
 async def step_select_time(update, context):
     query = update.callback_query; await query.answer()
+    if query.data == "back_to_dates":
+        svc_id = context.user_data.get('service_id')
+        if not svc_id:
+            await query.edit_message_text("Почніть спочатку /start")
+            return ConversationHandler.END
+        days_ua = {"Mon":"Пн","Tue":"Вт","Wed":"Ср","Thu":"Чт","Fri":"Пт","Sat":"Сб","Sun":"Нд"}
+        kb = []
+        for i in range(0, 15):
+            day = datetime.now() + timedelta(days=i)
+            ua = days_ua.get(day.strftime("%a"), "")
+            label = f"{day.strftime('%d.%m')} ({ua})" + (" — сьогодні" if i == 0 else "")
+            kb.append([InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
+        kb.append([InlineKeyboardButton("⬅️ Інша послуга", callback_data=f"back_to_cat_{SERVICES[svc_id]['cat']}")])
+        await query.edit_message_text(f"✅ *{SERVICES[svc_id]['name']}*\n\nОбери дату 📅", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        return SELECT_DATE
     context.user_data['time'] = query.data[5:]
     await query.edit_message_text("Як Вас звати? 👤\n\nВведіть своє ім'я:")
     return ENTER_NAME
@@ -751,6 +768,7 @@ async def step_confirm_service(update, context):
         ua = days_ua.get(day.strftime("%a"), "")
         label = f"{day.strftime('%d.%m')} ({ua})" + (" — сьогодні" if i == 0 else "")
         keyboard.append([InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
+    keyboard.append([InlineKeyboardButton("⬅️ Інша послуга", callback_data=f"back_to_cat_{SERVICES[context.user_data['service_id']]['cat']}")])
     await query.edit_message_text(f"✅ *{SERVICES[context.user_data['service_id']]['name']}*\n\nОбери дату 📅", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_DATE
 
@@ -773,15 +791,31 @@ async def step_select_date(update, context):
         row.append(InlineKeyboardButton(t, callback_data=f"time_{t}"))
         if len(row) == 4: keyboard.append(row); row = []
     if row: keyboard.append(row)
-    if not keyboard:
-        await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату /start")
-        return ConversationHandler.END
+    keyboard.append([InlineKeyboardButton("⬅️ Інша дата", callback_data="back_to_dates")])
+    if len(keyboard) == 1:
+        await query.edit_message_text("На жаль, на цю дату всі слоти зайняті 😔\nОбери іншу дату:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return SELECT_TIME
     date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y") + " (" + ["Понеділок","Вівторок","Середа","Четвер","Пʼятниця","Субота","Неділя"][datetime.strptime(date_str, "%Y-%m-%d").weekday()] + ")"
     await query.edit_message_text(f"📅 Дата: *{date_display}*\n\nОбери зручний час ⏰", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SELECT_TIME
 
 async def step_select_time(update, context):
     query = update.callback_query; await query.answer()
+    if query.data == "back_to_dates":
+        svc_id = context.user_data.get('service_id')
+        if not svc_id:
+            await query.edit_message_text("Почніть спочатку /start")
+            return ConversationHandler.END
+        days_ua = {"Mon":"Пн","Tue":"Вт","Wed":"Ср","Thu":"Чт","Fri":"Пт","Sat":"Сб","Sun":"Нд"}
+        kb = []
+        for i in range(0, 15):
+            day = datetime.now() + timedelta(days=i)
+            ua = days_ua.get(day.strftime("%a"), "")
+            label = f"{day.strftime('%d.%m')} ({ua})" + (" — сьогодні" if i == 0 else "")
+            kb.append([InlineKeyboardButton(label, callback_data=f"date_{day.strftime('%Y-%m-%d')}")])
+        kb.append([InlineKeyboardButton("⬅️ Інша послуга", callback_data=f"back_to_cat_{SERVICES[svc_id]['cat']}")])
+        await query.edit_message_text(f"✅ *{SERVICES[svc_id]['name']}*\n\nОбери дату 📅", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        return SELECT_DATE
     context.user_data['time'] = query.data[5:]
     await query.edit_message_text("Як Вас звати? 👤\n\nВведіть своє ім'я:")
     return ENTER_NAME
