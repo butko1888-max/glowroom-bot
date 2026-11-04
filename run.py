@@ -52,7 +52,7 @@ def build_main_app():
             b.ENTER_PHONE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, b.step_enter_phone)],
             b.CONFIRM_BOOKING: [CallbackQueryHandler(b.step_confirm_booking, pattern="^confirm_")],
         },
-        fallbacks=[CommandHandler("cancel", b.cancel)], per_message=False,
+        fallbacks=[CommandHandler("cancel", b.cancel)], per_message=False, allow_reentry=True,
     )
 
     app.add_handler(CommandHandler("start", b.start))
