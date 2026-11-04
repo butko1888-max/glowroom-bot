@@ -41,8 +41,13 @@ def build_main_app():
                 CallbackQueryHandler(b.step_confirm_service, pattern="^do_booking$"),
                 CallbackQueryHandler(b.step_confirm_service, pattern="^back_to_cat_"),
             ],
-            b.SELECT_DATE:     [CallbackQueryHandler(b.step_select_date, pattern="^date_")],
-            b.SELECT_TIME:     [CallbackQueryHandler(b.step_select_time, pattern="^time_")],
+            b.SELECT_DATE:     [
+                CallbackQueryHandler(b.step_select_date, pattern="^date_"),
+                CallbackQueryHandler(b.step_confirm_service, pattern="^back_to_cat_"),
+            ],
+            b.SELECT_TIME:     [
+                CallbackQueryHandler(b.step_select_time, pattern="^(time_|back_to_dates)"),
+            ],
             b.ENTER_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, b.step_enter_name)],
             b.ENTER_PHONE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, b.step_enter_phone)],
             b.CONFIRM_BOOKING: [CallbackQueryHandler(b.step_confirm_booking, pattern="^confirm_")],
