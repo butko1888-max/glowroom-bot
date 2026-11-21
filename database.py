@@ -1,283 +1,184 @@
 import os
 import json
-import psycopg2
-import psycopg2.extras
+import libsql_client
 from datetime import datetime
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:PLACEHOLDER@db.sfqezgzmnoivsucxyckm.supabase.co:5432/postgres")
+TURSO_URL = os.getenv("TURSO_DATABASE_URL", "")
+TURSO_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "")
 
 
-def get_conn():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+def _client():
+    return libsql_client.create_client_sync(url=TURSO_URL, auth_token=TURSO_TOKEN)
+
+
+def _rows_to_dicts(result):
+    cols = list(result.columns)
+    return [dict(zip(cols, row)) for row in result.rows]
 
 
 def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clients (
-            user_id BIGINT PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS bookings (
-            id SERIAL PRIMARY KEY,
-            user_id BIGINT,
-            service_id TEXT,
-            date TEXT,
-            time TEXT,
-            name TEXT,
-            phone TEXT,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS blocked_slots (
-            id SERIAL PRIMARY KEY,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(date, time)
-        );
-        CREATE TABLE IF NOT EXISTS scheduled_posts (
-            id SERIAL PRIMARY KEY,
-            text TEXT,
-            photo TEXT,
-            scheduled_at TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS broadcasts (
-            id SERIAL PRIMARY KEY,
-            messages TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _client() as c:
+        c.batch([
+            """CREATE TABLE IF NOT EXISTS clients (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                service_id TEXT,
+                date TEXT,
+                time TEXT,
+                name TEXT,
+                phone TEXT,
+                status TEXT DEFAULT 'active',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS scheduled_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT,
+                photo TEXT,
+                scheduled_at TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS broadcasts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                messages TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS blocked_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT,
+                time TEXT,
+                UNIQUE(date, time)
+            )""",
+        ])
 
 
 def add_client(user_id: int, username: str, first_name: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO clients (user_id, username, first_name) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO NOTHING",
-        (user_id, username, first_name)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _client() as c:
+        c.execute(
+            "INSERT INTO clients (user_id, username, first_name) VALUES (?, ?, ?) ON CONFLICT(user_id) DO NOTHING",
+            (user_id, username, first_name),
+        )
 
 
 def get_all_clients():
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM clients")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+    with _client() as c:
+        return _rows_to_dicts(c.execute("SELECT * FROM clients"))
 
 
 def create_booking(user_id, service_id, date, time, name, phone):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO bookings (user_id, service_id, date, time, name, phone) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-        (user_id, service_id, date, time, name, phone)
-    )
-    booking_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return booking_id
+    with _client() as c:
+        r = c.execute(
+            "INSERT INTO bookings (user_id, service_id, date, time, name, phone) VALUES (?,?,?,?,?,?)",
+            (user_id, service_id, date, time, name, phone),
+        )
+        return r.last_insert_rowid
 
 
 def get_booked_times(date: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT time FROM bookings WHERE date=%s AND status='active'", (date,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [r[0] for r in rows]
-
-
-def get_bookings_with_service(date: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT time, service_id FROM bookings WHERE date=%s AND status='active'", (date,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [(r[0], r[1]) for r in rows]
+    with _client() as c:
+        r = c.execute("SELECT time FROM bookings WHERE date=? AND status='active'", (date,))
+        return [row[0] for row in r.rows]
 
 
 def get_client_bookings(user_id: int):
     today = datetime.now().strftime("%Y-%m-%d")
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM bookings WHERE user_id=%s AND date>=%s AND status='active' ORDER BY date, time",
-        (user_id, today)
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+    with _client() as c:
+        r = c.execute(
+            "SELECT * FROM bookings WHERE user_id=? AND date>=? AND status='active' ORDER BY date, time",
+            (user_id, today),
+        )
+        return _rows_to_dicts(r)
 
 
 def get_bookings_by_date(date: str):
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM bookings WHERE date=%s AND status='active' ORDER BY time", (date,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+    with _client() as c:
+        r = c.execute("SELECT * FROM bookings WHERE date=? AND status='active' ORDER BY time", (date,))
+        return _rows_to_dicts(r)
 
 
 def get_upcoming_bookings(from_date: str):
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM bookings WHERE date>=%s AND status='active' ORDER BY date, time",
-        (from_date,)
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def get_booking_by_id(booking_id: int):
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM bookings WHERE id=%s", (booking_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return dict(row) if row else None
+    with _client() as c:
+        r = c.execute(
+            "SELECT * FROM bookings WHERE date>=? AND status='active' ORDER BY date, time",
+            (from_date,),
+        )
+        return _rows_to_dicts(r)
 
 
 def cancel_booking(booking_id: int):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE bookings SET status='cancelled' WHERE id=%s", (booking_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _client() as c:
+        c.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
 
 
-# ===== Blocked slots =====
+def get_booking(booking_id: int):
+    with _client() as c:
+        r = c.execute("SELECT * FROM bookings WHERE id=?", (booking_id,))
+        rows = _rows_to_dicts(r)
+        return rows[0] if rows else None
+
+
 def block_slot(date: str, time: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO blocked_slots (date, time) VALUES (%s, %s) ON CONFLICT (date, time) DO NOTHING",
-            (date, time)
+    with _client() as c:
+        c.execute(
+            "INSERT INTO blocked_slots (date, time) VALUES (?, ?) ON CONFLICT(date, time) DO NOTHING",
+            (date, time),
         )
-        conn.commit()
-    finally:
-        cur.close()
-        conn.close()
 
 
 def unblock_slot(date: str, time: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM blocked_slots WHERE date=%s AND time=%s", (date, time))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _client() as c:
+        c.execute("DELETE FROM blocked_slots WHERE date=? AND time=?", (date, time))
 
 
-def get_blocked_slots(date: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT time FROM blocked_slots WHERE date=%s", (date,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [r[0] for r in rows]
-
-
-def get_all_blocked_slots(from_date: str):
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM blocked_slots WHERE date>=%s ORDER BY date, time", (from_date,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+def get_blocked_slots(date: str = None):
+    with _client() as c:
+        if date:
+            r = c.execute("SELECT * FROM blocked_slots WHERE date=? ORDER BY time", (date,))
+        else:
+            r = c.execute("SELECT * FROM blocked_slots ORDER BY date, time")
+        return _rows_to_dicts(r)
 
 
 def save_scheduled_post(text: str, photo: str, scheduled_at: str) -> int:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO scheduled_posts (text, photo, scheduled_at) VALUES (%s, %s, %s) RETURNING id",
-        (text, photo, scheduled_at)
-    )
-    post_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return post_id
+    with _client() as c:
+        r = c.execute(
+            "INSERT INTO scheduled_posts (text, photo, scheduled_at) VALUES (?,?,?)",
+            (text, photo, scheduled_at),
+        )
+        return r.last_insert_rowid
 
 
 def get_scheduled_posts():
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM scheduled_posts WHERE status='pending' ORDER BY scheduled_at")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+    with _client() as c:
+        r = c.execute("SELECT * FROM scheduled_posts WHERE status='pending' ORDER BY scheduled_at")
+        return _rows_to_dicts(r)
 
 
 def mark_post_sent(post_id: int):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE scheduled_posts SET status='sent' WHERE id=%s", (post_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _client() as c:
+        c.execute("UPDATE scheduled_posts SET status='sent' WHERE id=?", (post_id,))
 
 
-def save_broadcast_messages(sent_messages):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO broadcasts (messages) VALUES (%s) RETURNING id",
-        (json.dumps(sent_messages),)
-    )
-    broadcast_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return broadcast_id
+def save_broadcast_messages(sent_messages: list) -> int:
+    with _client() as c:
+        r = c.execute("INSERT INTO broadcasts (messages) VALUES (?)", (json.dumps(sent_messages),))
+        return r.last_insert_rowid
 
 
-def get_broadcast_messages(broadcast_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT messages FROM broadcasts WHERE id=%s", (broadcast_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if not row:
-        return []
-    return json.loads(row[0])
+def get_broadcast_messages(broadcast_id: int) -> list:
+    with _client() as c:
+        r = c.execute("SELECT messages FROM broadcasts WHERE id=?", (broadcast_id,))
+        if not r.rows:
+            return []
+        return json.loads(r.rows[0][0])
 
 
-def delete_broadcast_messages(broadcast_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM broadcasts WHERE id=%s", (broadcast_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+def delete_broadcast_messages(broadcast_id: int):
+    with _client() as c:
+        c.execute("DELETE FROM broadcasts WHERE id=?", (broadcast_id,))
