@@ -1,6 +1,6 @@
 """Standalone admin bot for @klientglowroom_bot.
 Receives booking notifications, lets admin view clients and broadcast posts.
-Uses Turso (libSQL) database â shared with the main booking bot.
+Uses Turso (libSQL) database — shared with the main booking bot.
 """
 import os
 import logging
@@ -37,29 +37,29 @@ ADMIN_IDS  = [int(x) for x in os.getenv("ADMIN_IDS", "715653302,456903781").spli
 PORT       = int(os.getenv("PORT", "10000"))
 
 
-# âââââ UI âââââ
+# ───── UI ─────
 def is_admin(update: Update):
     return update.effective_user and update.effective_user.id in ADMIN_IDS
 
 def main_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("ð Ð¡ÑÐ²Ð¾ÑÐ¸ÑÐ¸ Ð¿Ð¾ÑÑ",     callback_data="m_post")],
-        [InlineKeyboardButton("ð ÐÐ°Ð¿Ð»Ð°Ð½Ð¾Ð²Ð°Ð½Ñ Ð¿Ð¾ÑÑÐ¸", callback_data="m_sched")],
-        [InlineKeyboardButton("ð¥ ÐÐ°Ð·Ð° ÐºÐ»ÑÑÐ½ÑÑÐ²",     callback_data="m_clients")],
+        [InlineKeyboardButton("📝 Створити пост",     callback_data="m_post")],
+        [InlineKeyboardButton("📋 Заплановані пости", callback_data="m_sched")],
+        [InlineKeyboardButton("👥 База клієнтів",     callback_data="m_clients")],
     ])
 
 def back_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("âï¸ ÐÐ°Ð·Ð°Ð´", callback_data="m_back")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="m_back")]])
 
 
-# âââââ Handlers âââââ
+# ───── Handlers ─────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("/start user=%s is_admin=%s", update.effective_user.id, is_admin(update))
     if not is_admin(update):
-        await update.message.reply_text("â ÐÐµÐ¼Ð°Ñ Ð´Ð¾ÑÑÑÐ¿Ñ.")
+        await update.message.reply_text("❌ Немає доступу.")
         return
     await update.message.reply_text(
-        "ð *GlowRoom Admin*\n\nÐÐ±ÐµÑÐ¸ Ð´ÑÑ ð",
+        "👑 *GlowRoom Admin*\n\nОбери дію 👇",
         reply_markup=main_kb(),
         parse_mode="Markdown",
     )
@@ -73,7 +73,7 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("answer failed: %s", e)
     if not is_admin(update):
         try:
-            await q.edit_message_text("â ÐÐµÐ¼Ð°Ñ Ð´Ð¾ÑÑÑÐ¿Ñ.")
+            await q.edit_message_text("❌ Немає доступу.")
         except Exception:
             pass
         return
@@ -84,47 +84,47 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == "m_clients":
             clients = db_get_clients()
             if not clients:
-                text = "ð¥ ÐÐ°Ð·Ð° Ð¿Ð¾ÑÐ¾Ð¶Ð½Ñ."
+                text = "👥 База порожня."
             else:
-                lines = [f"ð¥ *ÐÐ°Ð·Ð° ÐºÐ»ÑÑÐ½ÑÑÐ²:* {len(clients)}", ""]
+                lines = [f"👥 *База клієнтів:* {len(clients)}", ""]
                 for c in clients[:50]:
-                    uname = c.get("username") or "â"
-                    fname = c.get("first_name") or "â"
-                    lines.append(f"â¢ {fname} @{uname}")
+                    uname = c.get("username") or "—"
+                    fname = c.get("first_name") or "—"
+                    lines.append(f"• {fname} @{uname}")
                 if len(clients) > 50:
-                    lines.append(f"\n_...Ñ ÑÐµ {len(clients)-50}_")
+                    lines.append(f"\n_...і ще {len(clients)-50}_")
                 text = "\n".join(lines)
             await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_kb())
 
         elif data == "m_sched":
             posts = db_get_posts()
             if not posts:
-                await q.edit_message_text("ð ÐÐ°Ð¿Ð»Ð°Ð½Ð¾Ð²Ð°Ð½Ð¸Ñ Ð¿Ð¾ÑÑÑÐ² Ð½ÐµÐ¼Ð°Ñ.", reply_markup=back_kb())
+                await q.edit_message_text("📋 Запланованих постів немає.", reply_markup=back_kb())
                 return
-            lines = [f"ð *ÐÐ°Ð¿Ð»Ð°Ð½Ð¾Ð²Ð°Ð½Ñ:* {len(posts)}", ""]
+            lines = [f"📋 *Заплановані:* {len(posts)}", ""]
             rows = []
             for p in posts:
                 prev = (p.get("text") or "")[:60]
-                lines.append(f"â¢ #{p['id']} â {p.get('scheduled_at','?')}\n  _{prev}_")
-                rows.append([InlineKeyboardButton(f"ðï¸ #{p['id']}", callback_data=f"del_{p['id']}")])
-            rows.append([InlineKeyboardButton("âï¸ ÐÐ°Ð·Ð°Ð´", callback_data="m_back")])
+                lines.append(f"• #{p['id']} — {p.get('scheduled_at','?')}\n  _{prev}_")
+                rows.append([InlineKeyboardButton(f"🗑️ #{p['id']}", callback_data=f"del_{p['id']}")])
+            rows.append([InlineKeyboardButton("◀️ Назад", callback_data="m_back")])
             await q.edit_message_text("\n".join(lines), parse_mode="Markdown",
                                       reply_markup=InlineKeyboardMarkup(rows))
 
         elif data == "m_post":
             context.user_data.clear()
             context.user_data["st"] = "wait_text"
-            await q.edit_message_text("âï¸ ÐÐ°Ð´ÑÑÐ»Ð¸ *ÑÐµÐºÑÑ* Ð¿Ð¾ÑÑÐ°:", parse_mode="Markdown")
+            await q.edit_message_text("✏️ Надішли *текст* поста:", parse_mode="Markdown")
 
         elif data == "m_back":
             context.user_data.clear()
-            await q.edit_message_text("ð *GlowRoom Admin*\n\nÐÐ±ÐµÑÐ¸ Ð´ÑÑ ð",
+            await q.edit_message_text("👑 *GlowRoom Admin*\n\nОбери дію 👇",
                                       parse_mode="Markdown", reply_markup=main_kb())
 
         elif data.startswith("del_"):
             pid = int(data.replace("del_", ""))
             db_delete_post(pid)
-            await q.edit_message_text(f"â ÐÐ¾ÑÑ #{pid} Ð²Ð¸Ð´Ð°Ð»ÐµÐ½Ð¾.", reply_markup=back_kb())
+            await q.edit_message_text(f"✅ Пост #{pid} видалено.", reply_markup=back_kb())
 
         elif data == "p_nophoto":
             context.user_data["photo"] = None
@@ -140,15 +140,15 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 d = today + timedelta(days=i)
                 rows.append([InlineKeyboardButton(d.strftime("%d.%m (%a)"),
                                                   callback_data=f"pd_{d.strftime('%Y-%m-%d')}")])
-            rows.append([InlineKeyboardButton("âï¸ ÐÐ°Ð·Ð°Ð´", callback_data="m_back")])
-            await q.edit_message_text("ð ÐÐ±ÐµÑÑÑÑ Ð´Ð°ÑÑ:", reply_markup=InlineKeyboardMarkup(rows))
+            rows.append([InlineKeyboardButton("◀️ Назад", callback_data="m_back")])
+            await q.edit_message_text("📅 Оберіть дату:", reply_markup=InlineKeyboardMarkup(rows))
 
         elif data.startswith("pd_"):
             date = data.replace("pd_", "")
             context.user_data["date"] = date
             rows = [[InlineKeyboardButton(f"{h:02d}:00", callback_data=f"pt_{h:02d}:00")]
                     for h in range(9, 22)]
-            await q.edit_message_text(f"ð Ð§Ð°Ñ Ð´Ð»Ñ {date}:", reply_markup=InlineKeyboardMarkup(rows))
+            await q.edit_message_text(f"🕐 Час для {date}:", reply_markup=InlineKeyboardMarkup(rows))
 
         elif data.startswith("pt_"):
             tm = data.replace("pt_", "")
@@ -163,7 +163,7 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif data == "p_cancel":
             context.user_data.clear()
-            await q.edit_message_text("â Ð¡ÐºÐ°ÑÐ¾Ð²Ð°Ð½Ð¾.", reply_markup=back_kb())
+            await q.edit_message_text("❌ Скасовано.", reply_markup=back_kb())
 
         else:
             logger.warning("unknown callback data=%s", data)
@@ -171,7 +171,7 @@ async def menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error("menu_cb ERROR data=%s: %s\n%s", q.data, e, traceback.format_exc())
         try:
-            await q.edit_message_text(f"â ÐÐ¾Ð¼Ð¸Ð»ÐºÐ°: `{type(e).__name__}: {str(e)[:200]}`",
+            await q.edit_message_text(f"❌ Помилка: `{type(e).__name__}: {str(e)[:200]}`",
                                       parse_mode="Markdown", reply_markup=back_kb())
         except Exception:
             pass
@@ -189,9 +189,9 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["text"] = update.message.text
             context.user_data["st"] = "wait_photo"
             await update.message.reply_text(
-                "ð¸ ÐÑÐ¸ÐºÑÑÐ¿Ð¸ ÑÐ¾ÑÐ¾ Ð°Ð±Ð¾ Ð½Ð°ÑÐ¸ÑÐ½Ð¸ ÐºÐ½Ð¾Ð¿ÐºÑ:",
+                "📸 Прикріпи фото або натисни кнопку:",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("â¡ï¸ ÐÐµÐ· ÑÐ¾ÑÐ¾", callback_data="p_nophoto")]]
+                    [[InlineKeyboardButton("➡️ Без фото", callback_data="p_nophoto")]]
                 ),
             )
         elif st == "wait_photo" and update.message.photo:
@@ -199,16 +199,16 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _ask_schedule(update.message, context)
     except Exception as e:
         logger.exception("msg_handler failed")
-        await update.message.reply_text(f"â ÐÐ¾Ð¼Ð¸Ð»ÐºÐ°: {e}")
+        await update.message.reply_text(f"❌ Помилка: {e}")
 
 
 async def _ask_schedule(target, context):
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("ð ÐÐ°Ð´ÑÑÐ»Ð°ÑÐ¸ Ð·Ð°ÑÐ°Ð·", callback_data="p_now")],
-        [InlineKeyboardButton("â° ÐÐ°Ð¿Ð»Ð°Ð½ÑÐ²Ð°ÑÐ¸",     callback_data="p_later")],
-        [InlineKeyboardButton("â Ð¡ÐºÐ°ÑÑÐ²Ð°ÑÐ¸",        callback_data="p_cancel")],
+        [InlineKeyboardButton("🚀 Надіслати зараз", callback_data="p_now")],
+        [InlineKeyboardButton("⏰ Запланувати",     callback_data="p_later")],
+        [InlineKeyboardButton("❌ Скасувати",        callback_data="p_cancel")],
     ])
-    text = "â±ï¸ ÐÐ¾Ð»Ð¸ Ð½Ð°Ð´ÑÑÐ»Ð°ÑÐ¸?"
+    text = "⏱️ Коли надіслати?"
     if hasattr(target, "edit_message_text"):
         await target.edit_message_text(text, reply_markup=kb)
     else:
@@ -218,12 +218,12 @@ async def _ask_schedule(target, context):
 
 async def _show_confirm(update, context, now, q):
     text = context.user_data.get("text", "")
-    label = "Ð·Ð°ÑÐ°Ð·" if now else f"{context.user_data.get('date')} {context.user_data.get('time')}"
-    preview = f"ð¬ *ÐÑÐ´ÑÐ²ÐµÑÐ´Ð¶ÐµÐ½Ð½Ñ*\n\n{text}\n\nâ° _{label}_"
+    label = "зараз" if now else f"{context.user_data.get('date')} {context.user_data.get('time')}"
+    preview = f"📬 *Підтвердження*\n\n{text}\n\n⏰ _{label}_"
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(("â ÐÐ°Ð´ÑÑÐ»Ð°ÑÐ¸" if now else "â ÐÐ°Ð¿Ð»Ð°Ð½ÑÐ²Ð°ÑÐ¸"),
+        [InlineKeyboardButton(("✅ Надіслати" if now else "✅ Запланувати"),
                               callback_data=("p_confirm_now" if now else "p_confirm_later"))],
-        [InlineKeyboardButton("â Ð¡ÐºÐ°ÑÑÐ²Ð°ÑÐ¸", callback_data="p_cancel")],
+        [InlineKeyboardButton("❌ Скасувати", callback_data="p_cancel")],
     ])
     await q.edit_message_text(preview, parse_mode="Markdown", reply_markup=kb)
 
@@ -234,20 +234,20 @@ async def _do_send(update, context, now, q):
     if now:
         try:
             count = await _broadcast(context.bot, text, photo)
-            await q.edit_message_text(f"â ÐÐ°Ð´ÑÑÐ»Ð°Ð½Ð¾ {count} ÐºÐ»ÑÑÐ½ÑÐ°Ð¼.", reply_markup=back_kb())
+            await q.edit_message_text(f"✅ Надіслано {count} клієнтам.", reply_markup=back_kb())
         except Exception as e:
             logger.exception("broadcast now failed")
-            await q.edit_message_text(f"â ÐÐ¾Ð¼Ð¸Ð»ÐºÐ°: {e}", reply_markup=back_kb())
+            await q.edit_message_text(f"❌ Помилка: {e}", reply_markup=back_kb())
     else:
         date = context.user_data.get("date")
         time_s = context.user_data.get("time")
         when = f"{date} {time_s}"
         try:
             pid = db_create_post(text, photo, when)
-            await q.edit_message_text(f"â ÐÐ°Ð¿Ð»Ð°Ð½Ð¾Ð²Ð°Ð½Ð¾ Ð½Ð° {when} (#{pid})", reply_markup=back_kb())
+            await q.edit_message_text(f"✅ Заплановано на {when} (#{pid})", reply_markup=back_kb())
         except Exception as e:
             logger.exception("create_post failed")
-            await q.edit_message_text(f"â ÐÐ¾Ð¼Ð¸Ð»ÐºÐ°: {e}", reply_markup=back_kb())
+            await q.edit_message_text(f"❌ Помилка: {e}", reply_markup=back_kb())
     context.user_data.clear()
 
 
@@ -311,7 +311,7 @@ async def main():
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
     asyncio.create_task(scheduler_loop(app))
-    logger.info("â Admin bot started (@klientglowroom_bot)")
+    logger.info("✅ Admin bot started (@klientglowroom_bot)")
     await asyncio.Event().wait()
 
 
