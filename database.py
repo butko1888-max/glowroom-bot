@@ -59,8 +59,7 @@ def _execute(sql, params=()):
     r = data["results"][0]
     if r.get("type") == "error":
         raise RuntimeError(f"Turso error: {r.get('error',{}).get('message','?')}")
-    return r["response"]["result"
-]
+    return r["response"]["result"]
 
 
 def _batch(statements):
@@ -152,7 +151,10 @@ def create_booking(user_id, service_id, date, time, name, phone):
 
 def get_booked_times(date):
     r = _execute("SELECT time FROM bookings WHERE date=? AND status='active'", (date,))
-    return [row[0] for row in _rows_raw(r)]
+    booked = [row[0] for row in _rows_raw(r)]
+    r2 = _execute("SELECT time FROM blocked_slots WHERE date=?", (date,))
+    blocked = [row[0] for row in _rows_raw(r2)]
+    return list(set(booked + blocked))
 
 
 def get_client_bookings(user_id):
